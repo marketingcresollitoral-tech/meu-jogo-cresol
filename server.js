@@ -7,38 +7,35 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Inicialização da SDK do Gemini
 const ai = new GoogleGenAI();
 
 app.use(express.static('public'));
 
 let players = {};
 
-// Função para gerar dicas e diálogos via IA sem travar no fallback
 async function generateAIAdvice(playerA, playerB) {
-  const promptText = `Você é um gerador de diálogos para um jogo de gamificação bancária.
-Dois gerentes de carteira da Cresol Litoral se encontraram:
-- ${playerA.name} (${playerA.role})
-- ${playerB.name} (${playerB.role})
+  const promptText = `Você é um gerador de diálogos curtos para um jogo de gamificação bancária da Cresol Litoral.
+Dois gerentes se encontraram:
+- ${playerA.name}
+- ${playerB.name}
 
-Gere um diálogo novo, curto e divertido (uma frase para cada) onde eles trocam dicas práticas para bater meta de acionamento, zerar provisão de carteira ou recuperar inadimplência.
-Responda EXCLUSIVAMENTE em formato JSON usando o nome de cada um como chave:
-{"${playerA.name}": "Dica aqui", "${playerB.name}": "Resposta aqui"}`;
+Gere uma nova dica prática curta (uma frase para cada) sobre acionamentos de cobrança, redução de provisão ou metas de inadimplência.
+Responda EXCLUSIVAMENTE em formato JSON com o nome de cada um como chave. Exemplo:
+{"${playerA.name}": "Texto aqui", "${playerB.name}": "Texto aqui"}`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
+      contents: promptText,
       config: { responseMimeType: "application/json" }
     });
     return JSON.parse(response.text);
   } catch (error) {
-    console.error("Erro na chamada da IA:", error);
-    // Dicas dinâmicas de contingência caso ocorra algum erro na API
+    console.error("Erro na chamada Gemini:", error);
     const fallbackTips = [
-      { [playerA.name]: "Como está a carteira de acionamentos?", [playerB.name]: "Focando nos contratos de 1 a 30 dias hoje!" },
-      { [playerA.name]: "Dica de ouro pra hoje?", [playerB.name]: "Recuperar o INAD 90 nos primeiros 7 dias dá bônus extra de XP!" },
-      { [playerA.name]: "Bora bater a meta do chefão?", [playerB.name]: "Se a cooperativa fechar 100%, destrava o prêmio pra todo mundo!" }
+      { [playerA.name]: "Como está a carteira essa semana?", [playerB.name]: "Focando nos acionamentos de 1 a 30 dias!" },
+      { [playerA.name]: "Qual a dica pra atingir o topo do ranking?", [playerB.name]: "Regularizar o INAD 90 nos primeiros 7 dias dá bônus de XP!" },
+      { [playerA.name]: "Bora bater a meta coletiva?", [playerB.name]: "Se a cooperativa fechar 100%, libera o bônus pra todo mundo!" }
     ];
     return fallbackTips[Math.floor(Math.random() * fallbackTips.length)];
   }
@@ -68,7 +65,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Evento da tecla ESPAÇO: Gera novo diálogo dinâmico via IA
   socket.on('nextDialogue', async () => {
     const p1 = players[socket.id];
     if (p1 && p1.inConversation && p1.pairId) {
@@ -84,7 +80,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Evento da tecla ESC: Libera os jogadores para andarem novamente
   socket.on('leaveConversation', () => {
     const p1 = players[socket.id];
     if (p1) {
