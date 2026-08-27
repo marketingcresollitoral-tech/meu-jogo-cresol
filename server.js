@@ -12,31 +12,22 @@ const ai = new GoogleGenAI();
 app.use(express.static('public'));
 
 let players = {};
-// Armazena o histórico da conversa entre cada dupla de jogadores
-let activeHistories = {};
+let activeSessions = {};
 
-// Função para gerar conversação real encadeada usando a IA
-async function generateContinuousAIConversation(playerA, playerB, historyKey) {
-  if (!activeHistories[historyKey]) {
-    activeHistories[historyKey] = [];
-  }
-
-  const historyText = activeHistories[historyKey].length > 0 
-    ? `Histórico das falas anteriores:\n` + activeHistories[historyKey].map(h => `${h.speaker}: "${h.text}"`).join('\n')
-    : `Esta é a primeira vez que eles se encontram hoje.`;
-
-  const promptText = `Você é um roteirista de diálogos dinâmicos para um jogo de RPG gamificado da Cresol Litoral.
-Dois gerentes de carteira estão conversando no mapa:
-- ${playerA.name} (${playerA.role})
-- ${playerB.name} (${playerB.role})
+// Gera a réplica baseada estritamente no histórico da dupla
+async function generateNextTurnSpeech(speaker, listener, historyText) {
+  const promptText = `Você é um roteirista de um jogo corporativo gamificado para a Cresol Litoral.
+Dois gerentes estão conversando:
+- ${speaker.name} (${speaker.role})
+- ${listener.name} (${listener.role})
 
 ${historyText}
 
-Gere o PRÓXIMO PASSO dessa conversa. O Personagem 1 deve falar algo (ou responder à última fala) e o Personagem 2 deve responder diretamente ao que foi dito.
-Importante: O diálogo deve ser natural, sobre rotina bancária, metas de cobrança, provisão, piadas leves de escritório ou troca de conselhos de negociação.
+O último a falar foi ${listener.name}. Agora é a VEZ EXCLUSIVA de ${speaker.name} responder diretamente ao que foi dito acima.
+Gere APENAS a frase curta de ${speaker.name} (no máximo 15 palavras), de forma natural, profissional ou descontraída.
 
-Responda ESTRITAMENTE em formato JSON com o nome de cada um como chave:
-{"${playerA.name}": "Fala do Personagem 1", "${playerB.name}": "Resposta contextualizada do Personagem 2"}`;
+Responda EXCLUSIVAMENTE um JSON com este formato:
+{"speech": "Sua frase de resposta aqui"}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -44,25 +35,11 @@ Responda ESTRITAMENTE em formato JSON com o nome de cada um como chave:
       contents: promptText,
       config: { responseMimeType: "application/json" }
     });
-
     const result = JSON.parse(response.text);
-
-    // Guarda no histórico local para a próxima rodada lembrar
-    if (result[playerA.name]) activeHistories[historyKey].push({ speaker: playerA.name, text: result[playerA.name] });
-    if (result[playerB.name]) activeHistories[historyKey].push({ speaker: playerB.name, text: result[playerB.name] });
-
-    // Mantém no máximo as últimas 6 falas no histórico para não pesar a memória
-    if (activeHistories[historyKey].length > 6) {
-      activeHistories[historyKey] = activeHistories[historyKey].slice(-6);
-    }
-
-    return result;
+    return result.speech || "Vamos pra cima bater essa meta!";
   } catch (error) {
-    console.error("Erro na API da IA:", error);
-    return {
-      [playerA.name]: "O sistema deu uma oscilada... Mas e aí, como tá a carteira?",
-      [playerB.name]: "Tranquilo! Tô focado em zerar a provisão hoje."
-    };
+    console.error("Erro na IA:", error);
+    return "Com certeza! Foco total em organizar a carteira essa semana.";
   }
 }
 
@@ -76,70 +53,98 @@ io.on('connection', (socket) => {
       x: 200 + Math.random() * 200,
       y: 200 + Math.random() * 100,
       inConversation: false,
-      pairId: null
+      sessionId: null
     };
     io.emit('updatePlayers', players);
   });
 
   socket.on('move', (position) => {
-    if (players[socket.id] && !players[socket.id].inConversation) {
-      players[socket.id].x = position.x;
-      players[socket.id].y = position.y;
-      checkPlayerCollisions(socket.id);
-      socket.broadcast.emit('playerMoved', players[socket.id]);
+    const p = players[socket.id];
+    if (p && !p.inConversation) {
+      p.x = position.x;
+      p.y = position.y;
+      socket.broadcast.emit('playerMoved', p);
+      checkCollisions(socket.id);
     }
   });
 
-  // AVANÇAR O DIÁLOGO (Apertar E / Enter / Clique)
+  // AVANÇAR TURNOS (Aceita ordem de qualquer um dos dois participantes)
   socket.on('nextDialogue', async () => {
-    const p1 = players[socket.id];
-    if (p1 && p1.pairId && players[p1.pairId]) {
-      const p2 = players[p1.pairId];
-      const historyKey = [p1.id, p2.id].sort().join('_');
+    const p = players[socket.id];
+    if (!p || !p.sessionId || !activeSessions[p.sessionId]) return;
 
-      const dialog = await generateContinuousAIConversation(p1, p2, historyKey);
-      io.emit('triggerConversation', {
-        p1Id: p1.id,
-        p2Id: p2.id,
-        dialog: dialog
-      });
-    }
+    const session = activeSessions[p.sessionId];
+    
+    // Inverte o turno: o ouvinte vira o próximo orador
+    const currentSpeakerId = session.nextSpeakerId;
+    const currentListenerId = currentSpeakerId === session.p1Id ? session.p2Id : session.p1Id;
+    
+    const speaker = players[currentSpeakerId];
+    const listener = players[currentListenerId];
+
+    if (!speaker || !listener) return;
+
+    const historyFormatted = session.history.length > 0
+      ? `Histórico da conversa:\n` + session.history.map(h => `${h.speaker}: "${h.text}"`).join('\n')
+      : `O diálogo está começando agora.`;
+
+    const nextSpeech = await generateNextTurnSpeech(speaker, listener, historyFormatted);
+    
+    // Salva no histórico da sessão
+    session.history.push({ speaker: speaker.name, text: nextSpeech });
+    if (session.history.length > 6) session.history.shift();
+
+    // Prepara o próximo turno para o parceiro
+    session.nextSpeakerId = currentListenerId;
+
+    // Transmite a nova mensagem para ambos os navegadores
+    io.emit('updateConversationStep', {
+      sessionId: session.id,
+      speakerId: speaker.id,
+      speakerName: speaker.name,
+      speech: nextSpeech,
+      nextTurnName: listener.name
+    });
   });
 
-  // SAIR DA CONVERSA (Pressionar ESC)
+  // SAIR DA CONVERSA (Descongela e permite andar livremente)
   socket.on('leaveConversation', () => {
     const p1 = players[socket.id];
-    if (p1 && p1.pairId) {
-      const p2 = players[p1.pairId];
-      const historyKey = [p1.id, p1.pairId].sort().join('_');
-
-      // Limpa o histórico de diálogos dessa conversa
-      delete activeHistories[historyKey];
+    if (p1 && p1.sessionId && activeSessions[p1.sessionId]) {
+      const session = activeSessions[p1.sessionId];
+      const p2 = players[session.p1Id === p1.id ? session.p2Id : session.p1Id];
 
       p1.inConversation = false;
-      const oldPair = p1.pairId;
-      p1.pairId = null;
+      p1.sessionId = null;
 
       if (p2) {
         p2.inConversation = false;
-        p2.pairId = null;
+        p2.sessionId = null;
       }
-      io.emit('endConversation', { p1Id: socket.id, p2Id: oldPair });
+
+      delete activeSessions[session.id];
+      io.emit('endConversation', { p1Id: p1.id, p2Id: p2 ? p2.id : null });
     }
   });
 
   socket.on('disconnect', () => {
+    const p = players[socket.id];
+    if (p && p.sessionId && activeSessions[p.sessionId]) {
+      const session = activeSessions[p.sessionId];
+      delete activeSessions[session.id];
+      io.emit('endConversation', { p1Id: session.p1Id, p2Id: session.p2Id });
+    }
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
   });
 });
 
-async function checkPlayerCollisions(currentSocketId) {
-  const p1 = players[currentSocketId];
+async function checkCollisions(activeId) {
+  const p1 = players[activeId];
   if (!p1 || p1.inConversation) return;
 
   for (let id in players) {
-    if (id !== currentSocketId) {
+    if (id !== activeId) {
       const p2 = players[id];
       if (!p2 || p2.inConversation) continue;
 
@@ -147,20 +152,32 @@ async function checkPlayerCollisions(currentSocketId) {
       const dy = p1.y - p2.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist < 38) {
+      if (dist < 40) {
+        const sessionId = `session_${p1.id}_${p2.id}_${Date.now()}`;
+        
         p1.inConversation = true;
-        p1.pairId = p2.id;
+        p1.sessionId = sessionId;
         p2.inConversation = true;
-        p2.pairId = p1.id;
+        p2.sessionId = sessionId;
 
-        const historyKey = [p1.id, p2.id].sort().join('_');
-        const dialog = await generateContinuousAIConversation(p1, p2, historyKey);
-
-        io.emit('triggerConversation', {
+        activeSessions[sessionId] = {
+          id: sessionId,
           p1Id: p1.id,
           p2Id: p2.id,
-          dialog: dialog
+          nextSpeakerId: p2.id, // p1 começa falando, p2 será o próximo
+          history: [{ speaker: p1.name, text: "E aí, parça! Como estão as metas da sua carteira por aí?" }]
+        };
+
+        // Dispara o evento inicial
+        io.emit('startConversation', {
+          sessionId: sessionId,
+          p1Id: p1.id,
+          p2Id: p2.id,
+          initialSpeakerId: p1.id,
+          initialSpeech: "E aí, parça! Como estão as metas da sua carteira por aí?",
+          nextTurnName: p2.name
         });
+        break;
       }
     }
   }
