@@ -7,21 +7,27 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', monospace; }
     body { background: #111; color: #fff; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
-    #game-container { position: relative; width: 1000px; height: 550px; margin-top: 10px; border: 4px solid #fff; border-radius: 8px; }
+    
+    #game-container { 
+      position: relative; width: 1000px; height: 550px; margin-top: 10px; 
+      border: 4px solid #fff; border-radius: 8px; outline: none;
+    }
     canvas { background: #27ae60; display: block; }
     
+    /* Balão de Diálogo Clássico (Sem botões) */
     .chat-bubble {
       position: absolute; background: #ffffff; color: #000000; padding: 12px 16px;
       border-radius: 12px; border: 4px solid #f1c40f; font-size: 11px; font-weight: bold;
-      max-width: 230px; text-align: center; cursor: pointer; user-select: none;
+      max-width: 240px; text-align: center; user-select: none; pointer-events: none;
       box-shadow: 0 6px 14px rgba(0,0,0,0.6); z-index: 100;
       transform: translate(-50%, -100%);
     }
 
+    /* Indicador Visual do Espaço */
     .press-space-tag {
       display: block; margin-top: 8px; font-size: 9px; color: #e67e22;
       text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;
-      background: #ffeaa7; padding: 4px 8px; border-radius: 4px; border: 1px solid #d35400;
+      background: #ffeaa7; padding: 3px 6px; border-radius: 4px; border: 1px solid #d35400;
     }
 
     #login-screen {
@@ -32,9 +38,9 @@
     .btn-login { background: #f1c40f; color: #000; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin: 5px; border-radius: 4px; }
   </style>
 </head>
-<body>
+<body onclick="ensureKeyboardFocus()">
 
-  <div id="game-container">
+  <div id="game-container" tabindex="0" onclick="ensureKeyboardFocus()">
     <div id="login-screen">
       <h2>ENTRAR NO OVERWORLD ONLINE</h2><br>
       <button class="btn-login" onclick="login('Andre (Jaguaruna)', '#e74c3c')">Andre (Jaguaruna)</button>
@@ -50,6 +56,7 @@
     const socket = io();
     const canvas = document.getElementById('mapCanvas');
     const ctx = canvas.getContext('2d');
+    const container = document.getElementById('game-container');
 
     let myId = null;
     let onlinePlayers = {};
@@ -57,8 +64,14 @@
     const speed = 4;
     const keys = {};
 
+    function ensureKeyboardFocus() {
+      container.focus();
+      window.focus();
+    }
+
     function login(name, color) {
       document.getElementById('login-screen').style.display = 'none';
+      ensureKeyboardFocus();
       socket.emit('joinGame', { name: name, role: 'Gerente', color: color });
     }
 
@@ -83,33 +96,37 @@
       if (data.p2Id) removeBubble(data.p2Id);
     });
 
-    // Função universal para avançar conversa
     function advanceDialogue() {
       if (onlinePlayers[myId] && onlinePlayers[myId].inConversation) {
         socket.emit('nextDialogue');
       }
     }
 
-    // Clique em qualquer parte da tela do jogo avança a conversa se estiver conversando
-    document.getElementById('game-container').addEventListener('click', () => {
-      advanceDialogue();
-    });
-
-    // Captura da tecla ESPAÇO e ESC
+    // CAPTURA GLOBAL DE TECLAS (Interceptação direta de baixa latência)
     window.addEventListener('keydown', (e) => {
-      keys[e.key] = true;
+      // Garante o foco se qualquer tecla for pressionada
+      ensureKeyboardFocus();
 
-      if (e.code === 'Space' || e.key === ' ') {
-        e.preventDefault();
+      // Checa se a tecla pressionada é ESPAÇO
+      if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
+        e.preventDefault(); // Impede o scroll da página do portal
+        e.stopPropagation();
         advanceDialogue();
+        return false;
       }
 
-      if (e.code === 'Escape') {
+      // Tecla ESC para encerrar a conversa
+      if (e.code === 'Escape' || e.key === 'Escape' || e.keyCode === 27) {
         socket.emit('leaveConversation');
+        return false;
       }
-    });
 
-    window.addEventListener('keyup', (e) => keys[e.key] = false);
+      keys[e.key] = true;
+    }, true); // O "true" faz capturar antes de qualquer outro elemento da página
+
+    window.addEventListener('keyup', (e) => { 
+      keys[e.key] = false; 
+    }, true);
 
     function update() {
       if (!myId || !onlinePlayers[myId] || onlinePlayers[myId].inConversation) return;
@@ -156,19 +173,19 @@
 
     function showBubble(id, x, y, text) {
       removeBubble(id);
-      const container = document.getElementById('chat-bubbles-container');
+      const bubblesContainer = document.getElementById('chat-bubbles-container');
       const bubble = document.createElement('div');
       bubble.id = `bubble-${id}`;
       bubble.className = 'chat-bubble';
       
       bubble.innerHTML = `
         <div>${text}</div>
-        <span class="press-space-tag">▶ Clique ou [ESPAÇO] p/ avançar</span>
+        <span class="press-space-tag">▶ Aperte [ESPAÇO] p/ continuar...</span>
       `;
       
       bubble.style.left = `${x}px`;
       bubble.style.top = `${y - 35}px`;
-      container.appendChild(bubble);
+      bubblesContainer.appendChild(bubble);
     }
 
     function removeBubble(id) {
