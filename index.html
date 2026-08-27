@@ -10,30 +10,19 @@
     #game-container { position: relative; width: 1000px; height: 550px; margin-top: 10px; border: 4px solid #fff; border-radius: 8px; }
     canvas { background: #27ae60; display: block; }
     
-    /* Balão Estilo RPG Nintendo */
+    /* Balão de Diálogo */
     .chat-bubble {
-      position: absolute; background: #fff; color: #000; padding: 10px 14px;
-      border-radius: 12px; border: 3px solid #000; font-size: 11px; font-weight: bold;
+      position: absolute; background: #ffffff; color: #000000; padding: 10px 14px;
+      border-radius: 12px; border: 3px solid #000000; font-size: 11px; font-weight: bold;
       max-width: 220px; text-align: center; pointer-events: none;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.4); z-index: 100;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 100;
       transform: translate(-50%, -100%);
     }
 
-    /* Indicador visual dentro do balão para apertar espaço */
+    /* Rodapé do Balão - Indicador de Espaço */
     .press-space-tag {
       display: block; margin-top: 6px; font-size: 9px; color: #d35400;
-      text-transform: uppercase; letter-spacing: 0.5px; animation: blink 1s infinite;
-    }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-
-    #dialog-hint {
-      display: none; position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.85); padding: 8px 16px; border: 2px solid #f1c40f;
-      border-radius: 20px; font-size: 12px; color: #f1c40f; z-index: 150;
+      text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;
     }
 
     #login-screen {
@@ -56,7 +45,6 @@
 
     <canvas id="mapCanvas" width="1000" height="550"></canvas>
     <div id="chat-bubbles-container"></div>
-    <div id="dialog-hint">⌨️ Pressione <b>[ESC]</b> para encerrar e voltar a andar</div>
   </div>
 
   <script>
@@ -89,28 +77,26 @@
 
       if (p1 && data.dialog[p1.name]) showBubble(p1.id, p1.x, p1.y, data.dialog[p1.name]);
       if (p2 && data.dialog[p2.name]) showBubble(p2.id, p2.x, p2.y, data.dialog[p2.name]);
-
-      document.getElementById('dialog-hint').style.display = 'block';
     });
 
     socket.on('endConversation', (data) => {
       if (data.p1Id) removeBubble(data.p1Id);
       if (data.p2Id) removeBubble(data.p2Id);
-      document.getElementById('dialog-hint').style.display = 'none';
     });
 
-    // Tecla ESPAÇO aciona a próxima fala do diálogo
+    // Captura do Teclado (ESPAÇO e ESC)
     window.addEventListener('keydown', (e) => {
       keys[e.key] = true;
 
+      // Pressionar ESPAÇO avança a conversa via IA
       if (e.code === 'Space') {
         e.preventDefault();
-        // Só solicita o próximo diálogo se o jogador estiver participando da conversa
         if (onlinePlayers[myId] && onlinePlayers[myId].inConversation) {
           socket.emit('nextDialogue');
         }
       }
 
+      // Pressionar ESC encerra o diálogo
       if (e.code === 'Escape') {
         socket.emit('leaveConversation');
       }
@@ -129,7 +115,7 @@
 
       if (moved) {
         onlinePlayers[myId].x = myPos.x;
-        onlinePlayers[myPos.y] = myPos.y;
+        onlinePlayers[myId].y = myPos.y;
         socket.emit('move', myPos);
       }
     }
@@ -161,7 +147,6 @@
       }
     }
 
-    // Exibe o balão com o aviso "Aperte ESPAÇO para continuar..."
     function showBubble(id, x, y, text) {
       removeBubble(id);
       const container = document.getElementById('chat-bubbles-container');
@@ -169,10 +154,10 @@
       bubble.id = `bubble-${id}`;
       bubble.className = 'chat-bubble';
       
-      // Adiciona a instrução visual dentro do balão
+      // Renderiza o texto e a instrução de tecla dentro do balão
       bubble.innerHTML = `
         <div>${text}</div>
-        <span class="press-space-tag">▶ Aperte [ESPAÇO] para continuar...</span>
+        <span class="press-space-tag">▶ Aperte [ESPAÇO] p/ continuar...</span>
       `;
       
       bubble.style.left = `${x}px`;
