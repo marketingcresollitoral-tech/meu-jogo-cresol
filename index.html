@@ -10,12 +10,24 @@
     #game-container { position: relative; width: 1000px; height: 550px; margin-top: 10px; border: 4px solid #fff; border-radius: 8px; }
     canvas { background: #27ae60; display: block; }
     
+    /* Balão Estilo RPG Nintendo */
     .chat-bubble {
-      position: absolute; background: #fff; color: #000; padding: 8px 12px;
+      position: absolute; background: #fff; color: #000; padding: 10px 14px;
       border-radius: 12px; border: 3px solid #000; font-size: 11px; font-weight: bold;
-      max-width: 200px; text-align: center; pointer-events: none;
+      max-width: 220px; text-align: center; pointer-events: none;
       box-shadow: 0 4px 8px rgba(0,0,0,0.4); z-index: 100;
       transform: translate(-50%, -100%);
+    }
+
+    /* Indicador visual dentro do balão para apertar espaço */
+    .press-space-tag {
+      display: block; margin-top: 6px; font-size: 9px; color: #d35400;
+      text-transform: uppercase; letter-spacing: 0.5px; animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
 
     #dialog-hint {
@@ -44,7 +56,7 @@
 
     <canvas id="mapCanvas" width="1000" height="550"></canvas>
     <div id="chat-bubbles-container"></div>
-    <div id="dialog-hint">💬 Pressione <b>[ESPAÇO]</b> para próxima dica | <b>[ESC]</b> para sair da conversa</div>
+    <div id="dialog-hint">⌨️ Pressione <b>[ESC]</b> para encerrar e voltar a andar</div>
   </div>
 
   <script>
@@ -87,17 +99,18 @@
       document.getElementById('dialog-hint').style.display = 'none';
     });
 
-    // Eventos do Teclado
+    // Tecla ESPAÇO aciona a próxima fala do diálogo
     window.addEventListener('keydown', (e) => {
       keys[e.key] = true;
 
-      // Pressionar ESPAÇO para avançar conversa/dica por IA
       if (e.code === 'Space') {
         e.preventDefault();
-        socket.emit('nextDialogue');
+        // Só solicita o próximo diálogo se o jogador estiver participando da conversa
+        if (onlinePlayers[myId] && onlinePlayers[myId].inConversation) {
+          socket.emit('nextDialogue');
+        }
       }
 
-      // Pressionar ESC para encerrar a conversa e voltar a andar
       if (e.code === 'Escape') {
         socket.emit('leaveConversation');
       }
@@ -148,13 +161,20 @@
       }
     }
 
+    // Exibe o balão com o aviso "Aperte ESPAÇO para continuar..."
     function showBubble(id, x, y, text) {
       removeBubble(id);
       const container = document.getElementById('chat-bubbles-container');
       const bubble = document.createElement('div');
       bubble.id = `bubble-${id}`;
       bubble.className = 'chat-bubble';
-      bubble.innerText = text;
+      
+      // Adiciona a instrução visual dentro do balão
+      bubble.innerHTML = `
+        <div>${text}</div>
+        <span class="press-space-tag">▶ Aperte [ESPAÇO] para continuar...</span>
+      `;
+      
       bubble.style.left = `${x}px`;
       bubble.style.top = `${y - 35}px`;
       container.appendChild(bubble);
