@@ -10,18 +10,14 @@
     #game-container { position: relative; width: 1000px; height: 550px; margin-top: 10px; border: 4px solid #fff; border-radius: 8px; }
     canvas { background: #27ae60; display: block; }
     
-    /* Balão de Diálogo com Interação */
     .chat-bubble {
       position: absolute; background: #ffffff; color: #000000; padding: 12px 16px;
       border-radius: 12px; border: 4px solid #f1c40f; font-size: 11px; font-weight: bold;
       max-width: 230px; text-align: center; cursor: pointer; user-select: none;
       box-shadow: 0 6px 14px rgba(0,0,0,0.6); z-index: 100;
       transform: translate(-50%, -100%);
-      transition: transform 0.1s ease-in-out;
     }
-    .chat-bubble:active { transform: translate(-50%, -98%) scale(0.98); }
 
-    /* Tag de Dica do Espaço */
     .press-space-tag {
       display: block; margin-top: 8px; font-size: 9px; color: #e67e22;
       text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;
@@ -36,9 +32,9 @@
     .btn-login { background: #f1c40f; color: #000; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin: 5px; border-radius: 4px; }
   </style>
 </head>
-<body onclick="window.focus();">
+<body>
 
-  <div id="game-container" onclick="window.focus();">
+  <div id="game-container">
     <div id="login-screen">
       <h2>ENTRAR NO OVERWORLD ONLINE</h2><br>
       <button class="btn-login" onclick="login('Andre (Jaguaruna)', '#e74c3c')">Andre (Jaguaruna)</button>
@@ -63,7 +59,6 @@
 
     function login(name, color) {
       document.getElementById('login-screen').style.display = 'none';
-      window.focus(); // Garante o foco do teclado no jogo ao logar
       socket.emit('joinGame', { name: name, role: 'Gerente', color: color });
     }
 
@@ -79,8 +74,8 @@
       const p1 = onlinePlayers[data.p1Id];
       const p2 = onlinePlayers[data.p2Id];
 
-      if (p1 && data.dialog[p1.name]) showBubble(p1.id, p1.x, p1.y, data.dialog[p1.name]);
-      if (p2 && data.dialog[p2.name]) showBubble(p2.id, p2.x, p2.y, data.dialog[p2.name]);
+      if (p1 && data.dialog && data.dialog[p1.name]) showBubble(p1.id, p1.x, p1.y, data.dialog[p1.name]);
+      if (p2 && data.dialog && data.dialog[p2.name]) showBubble(p2.id, p2.x, p2.y, data.dialog[p2.name]);
     });
 
     socket.on('endConversation', (data) => {
@@ -88,24 +83,27 @@
       if (data.p2Id) removeBubble(data.p2Id);
     });
 
-    // Função central para pedir o próximo diálogo
-    function triggerNextDialogue() {
+    // Função universal para avançar conversa
+    function advanceDialogue() {
       if (onlinePlayers[myId] && onlinePlayers[myId].inConversation) {
         socket.emit('nextDialogue');
       }
     }
 
-    // Eventos de Teclado
+    // Clique em qualquer parte da tela do jogo avança a conversa se estiver conversando
+    document.getElementById('game-container').addEventListener('click', () => {
+      advanceDialogue();
+    });
+
+    // Captura da tecla ESPAÇO e ESC
     window.addEventListener('keydown', (e) => {
       keys[e.key] = true;
 
-      // Pressionar ESPAÇO avança a conversa
       if (e.code === 'Space' || e.key === ' ') {
         e.preventDefault();
-        triggerNextDialogue();
+        advanceDialogue();
       }
 
-      // Pressionar ESC sai do diálogo
       if (e.code === 'Escape') {
         socket.emit('leaveConversation');
       }
@@ -163,12 +161,6 @@
       bubble.id = `bubble-${id}`;
       bubble.className = 'chat-bubble';
       
-      // Permite clicar no balão para avançar a conversa
-      bubble.onclick = (e) => {
-        e.stopPropagation();
-        triggerNextDialogue();
-      };
-
       bubble.innerHTML = `
         <div>${text}</div>
         <span class="press-space-tag">▶ Clique ou [ESPAÇO] p/ avançar</span>
