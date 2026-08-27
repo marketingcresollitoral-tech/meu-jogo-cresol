@@ -12,18 +12,31 @@ const ai = new GoogleGenAI();
 app.use(express.static('public'));
 
 let players = {};
-let conversationIntervals = {};
+// Armazena o histórico da conversa entre cada dupla de jogadores
+let activeHistories = {};
 
-// Função para gerar dicas dinâmicas com a IA do Gemini
-async function generateAIAdvice(playerA, playerB) {
-  const promptText = `Você é um gerador de diálogos curtos para um jogo de gamificação bancária da Cresol Litoral.
-Dois gerentes se encontraram:
+// Função para gerar conversação real encadeada usando a IA
+async function generateContinuousAIConversation(playerA, playerB, historyKey) {
+  if (!activeHistories[historyKey]) {
+    activeHistories[historyKey] = [];
+  }
+
+  const historyText = activeHistories[historyKey].length > 0 
+    ? `Histórico das falas anteriores:\n` + activeHistories[historyKey].map(h => `${h.speaker}: "${h.text}"`).join('\n')
+    : `Esta é a primeira vez que eles se encontram hoje.`;
+
+  const promptText = `Você é um roteirista de diálogos dinâmicos para um jogo de RPG gamificado da Cresol Litoral.
+Dois gerentes de carteira estão conversando no mapa:
 - ${playerA.name} (${playerA.role})
 - ${playerB.name} (${playerB.role})
 
-Gere uma dica rápida, motivacional ou de cobrança/provisão (uma frase curta para cada).
-Responda EXCLUSIVAMENTE em formato JSON com o nome de cada um como chave:
-{"${playerA.name}": "Texto da primeira fala", "${playerB.name}": "Texto da segunda fala"}`;
+${historyText}
+
+Gere o PRÓXIMO PASSO dessa conversa. O Personagem 1 deve falar algo (ou responder à última fala) e o Personagem 2 deve responder diretamente ao que foi dito.
+Importante: O diálogo deve ser natural, sobre rotina bancária, metas de cobrança, provisão, piadas leves de escritório ou troca de conselhos de negociação.
+
+Responda ESTRITAMENTE em formato JSON com o nome de cada um como chave:
+{"${playerA.name}": "Fala do Personagem 1", "${playerB.name}": "Resposta contextualizada do Personagem 2"}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -31,47 +44,25 @@ Responda EXCLUSIVAMENTE em formato JSON com o nome de cada um como chave:
       contents: promptText,
       config: { responseMimeType: "application/json" }
     });
-    return JSON.parse(response.text);
-  } catch (error) {
-    console.error("Erro na IA:", error);
-    const fallbackTips = [
-      { [playerA.name]: "Como está a carteira essa semana?", [playerB.name]: "Focando nos acionamentos de 1 a 30 dias!" },
-      { [playerA.name]: "Como ganhar bônus de XP rápido?", [playerB.name]: "Regularizar o INAD 90 nos primeiros 7 dias dá bônus de agilidade!" },
-      { [playerA.name]: "Bora bater a meta coletiva?", [playerB.name]: "Se fechar 100%, libera o prêmio pra todo mundo!" }
-    ];
-    return fallbackTips[Math.floor(Math.random() * fallbackTips.length)];
-  }
-}
 
-// Inicia a conversa automática que se repete a cada 4.5 segundos
-function startAutoConversation(p1, p2) {
-  const convId = [p1.id, p2.id].sort().join('_');
-  if (conversationIntervals[convId]) return;
+    const result = JSON.parse(response.text);
 
-  async function triggerNextStep() {
-    if (!players[p1.id] || !players[p2.id]) {
-      stopAutoConversation(convId);
-      return;
+    // Guarda no histórico local para a próxima rodada lembrar
+    if (result[playerA.name]) activeHistories[historyKey].push({ speaker: playerA.name, text: result[playerA.name] });
+    if (result[playerB.name]) activeHistories[historyKey].push({ speaker: playerB.name, text: result[playerB.name] });
+
+    // Mantém no máximo as últimas 6 falas no histórico para não pesar a memória
+    if (activeHistories[historyKey].length > 6) {
+      activeHistories[historyKey] = activeHistories[historyKey].slice(-6);
     }
-    const dialog = await generateAIAdvice(p1, p2);
-    io.emit('triggerConversation', {
-      p1Id: p1.id,
-      p2Id: p2.id,
-      dialog: dialog
-    });
-  }
 
-  // Dispara a primeira fala na hora
-  triggerNextStep();
-
-  // Mantém a conversa fluindo sozinha
-  conversationIntervals[convId] = setInterval(triggerNextStep, 4500);
-}
-
-function stopAutoConversation(convId) {
-  if (conversationIntervals[convId]) {
-    clearInterval(conversationIntervals[convId]);
-    delete conversationIntervals[convId];
+    return result;
+  } catch (error) {
+    console.error("Erro na API da IA:", error);
+    return {
+      [playerA.name]: "O sistema deu uma oscilada... Mas e aí, como tá a carteira?",
+      [playerB.name]: "Tranquilo! Tô focado em zerar a provisão hoje."
+    };
   }
 }
 
@@ -99,13 +90,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Liberar a conversa ao apertar ESC
+  // AVANÇAR O DIÁLOGO (Apertar E / Enter / Clique)
+  socket.on('nextDialogue', async () => {
+    const p1 = players[socket.id];
+    if (p1 && p1.pairId && players[p1.pairId]) {
+      const p2 = players[p1.pairId];
+      const historyKey = [p1.id, p2.id].sort().join('_');
+
+      const dialog = await generateContinuousAIConversation(p1, p2, historyKey);
+      io.emit('triggerConversation', {
+        p1Id: p1.id,
+        p2Id: p2.id,
+        dialog: dialog
+      });
+    }
+  });
+
+  // SAIR DA CONVERSA (Pressionar ESC)
   socket.on('leaveConversation', () => {
     const p1 = players[socket.id];
     if (p1 && p1.pairId) {
       const p2 = players[p1.pairId];
-      const convId = [p1.id, p1.pairId].sort().join('_');
-      stopAutoConversation(convId);
+      const historyKey = [p1.id, p1.pairId].sort().join('_');
+
+      // Limpa o histórico de diálogos dessa conversa
+      delete activeHistories[historyKey];
 
       p1.inConversation = false;
       const oldPair = p1.pairId;
@@ -125,7 +134,7 @@ io.on('connection', (socket) => {
   });
 });
 
-function checkPlayerCollisions(currentSocketId) {
+async function checkPlayerCollisions(currentSocketId) {
   const p1 = players[currentSocketId];
   if (!p1 || p1.inConversation) return;
 
@@ -144,7 +153,14 @@ function checkPlayerCollisions(currentSocketId) {
         p2.inConversation = true;
         p2.pairId = p1.id;
 
-        startAutoConversation(p1, p2);
+        const historyKey = [p1.id, p2.id].sort().join('_');
+        const dialog = await generateContinuousAIConversation(p1, p2, historyKey);
+
+        io.emit('triggerConversation', {
+          p1Id: p1.id,
+          p2Id: p2.id,
+          dialog: dialog
+        });
       }
     }
   }
