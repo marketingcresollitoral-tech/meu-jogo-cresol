@@ -14,7 +14,6 @@
     }
     canvas { background: #27ae60; display: block; }
     
-    /* Balão com Clique Direto */
     .chat-bubble {
       position: absolute; background: #ffffff; color: #000000; padding: 12px 16px;
       border-radius: 12px; border: 4px solid #f1c40f; font-size: 11px; font-weight: bold;
@@ -76,17 +75,26 @@
       removeBubble(id);
     });
 
-    socket.on('triggerConversation', (data) => {
-      const p1 = onlinePlayers[data.p1Id];
-      const p2 = onlinePlayers[data.p2Id];
+    // Início de conversa
+    socket.on('startConversation', (data) => {
+      removeAllBubbles();
+      const p = onlinePlayers[data.initialSpeakerId];
+      if (p) {
+        showBubble(p.id, p.x, p.y, data.initialSpeech, data.nextTurnName);
+      }
+    });
 
-      if (p1 && data.dialog && data.dialog[p1.name]) showBubble(p1.id, p1.x, p1.y, data.dialog[p1.name]);
-      if (p2 && data.dialog && data.dialog[p2.name]) showBubble(p2.id, p2.x, p2.y, data.dialog[p2.name]);
+    // Atualização de turno do diálogo
+    socket.on('updateConversationStep', (data) => {
+      removeAllBubbles();
+      const p = onlinePlayers[data.speakerId];
+      if (p) {
+        showBubble(p.id, p.x, p.y, data.speech, data.nextTurnName);
+      }
     });
 
     socket.on('endConversation', (data) => {
-      if (data.p1Id) removeBubble(data.p1Id);
-      if (data.p2Id) removeBubble(data.p2Id);
+      removeAllBubbles();
     });
 
     function advanceDialogue() {
@@ -95,9 +103,10 @@
       }
     }
 
-    // TECLAS DE ATALHO: E, ENTER ou ESC
+    // Teclas do Teclado
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'e' || e.key === 'E' || e.key === 'Enter' || e.code === 'KeyE' || e.code === 'Enter') {
+      if (e.key === 'e' || e.key === 'E' || e.key === 'Enter' || e.code === 'KeyE' || e.code === 'Enter' || e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
         advanceDialogue();
       }
 
@@ -153,14 +162,13 @@
       }
     }
 
-    function showBubble(id, x, y, text) {
+    function showBubble(id, x, y, text, nextTurnName) {
       removeBubble(id);
       const bubblesContainer = document.getElementById('chat-bubbles-container');
       const bubble = document.createElement('div');
       bubble.id = `bubble-${id}`;
       bubble.className = 'chat-bubble';
       
-      // Clique no balão envia o pedido do próximo passo da história
       bubble.onclick = (e) => {
         e.stopPropagation();
         advanceDialogue();
@@ -168,7 +176,7 @@
 
       bubble.innerHTML = `
         <div>${text}</div>
-        <span class="press-key-tag">▶ Clique / [E] / [ENTER] p/ avançar</span>
+        <span class="press-key-tag">▶ Clique p/ responder ${nextTurnName}</span>
       `;
       
       bubble.style.left = `${x}px`;
@@ -179,6 +187,11 @@
     function removeBubble(id) {
       const bubble = document.getElementById(`bubble-${id}`);
       if (bubble) bubble.remove();
+    }
+
+    function removeAllBubbles() {
+      const bubblesContainer = document.getElementById('chat-bubbles-container');
+      bubblesContainer.innerHTML = '';
     }
 
     function gameLoop() {
