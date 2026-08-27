@@ -19,7 +19,7 @@
       transform: translate(-50%, -100%);
     }
 
-    /* Rodapé do Balão - Indicador de Espaço */
+    /* Tag piscante indicando ESPAÇO */
     .press-space-tag {
       display: block; margin-top: 6px; font-size: 9px; color: #d35400;
       text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;
@@ -84,11 +84,11 @@
       if (data.p2Id) removeBubble(data.p2Id);
     });
 
-    // Captura do Teclado (ESPAÇO e ESC)
+    // Captura das teclas do teclado
     window.addEventListener('keydown', (e) => {
       keys[e.key] = true;
 
-      // Pressionar ESPAÇO avança a conversa via IA
+      // Pressionar ESPAÇO solicita novo diálogo à IA
       if (e.code === 'Space') {
         e.preventDefault();
         if (onlinePlayers[myId] && onlinePlayers[myId].inConversation) {
@@ -96,7 +96,7 @@
         }
       }
 
-      // Pressionar ESC encerra o diálogo
+      // Pressionar ESC encerra o diálogo e libera o boneco
       if (e.code === 'Escape') {
         socket.emit('leaveConversation');
       }
@@ -114,6 +114,7 @@
       if (keys.ArrowRight || keys.d || keys.D) { myPos.x += speed; moved = true; }
 
       if (moved) {
+        // Correção de atribuição do id
         onlinePlayers[myId].x = myPos.x;
         onlinePlayers[myId].y = myPos.y;
         socket.emit('move', myPos);
@@ -154,7 +155,7 @@
       bubble.id = `bubble-${id}`;
       bubble.className = 'chat-bubble';
       
-      // Renderiza o texto e a instrução de tecla dentro do balão
+      // Insere o texto da IA com o indicador visual abaixo
       bubble.innerHTML = `
         <div>${text}</div>
         <span class="press-space-tag">▶ Aperte [ESPAÇO] p/ continuar...</span>
